@@ -1,0 +1,56 @@
+public class getMiraklToken{
+    
+    public static void refreshMiraklToken() {
+        try{
+            // Get configuration from Custom Metadata
+            Mirakl_Creds__mdt config =  Mirakl_Creds__mdt.getInstance('Auth_Credentials');
+            
+            if(config == null) {
+                System.debug('Mirakl configuration not found');
+                return;
+            }
+
+            HttpRequest req = new HttpRequest();
+            req.setEndpoint(config.Auth_Endpoint__c); // auth end point like https://auth-yourinstacne.mirakl.net/oauth/token
+            req.setMethod('POST');
+            req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+
+            // get client id, client secret and Audience from mdt
+            String body = 'grant_type=client_credentials' + 
+                          '&client_id=' + EncodingUtil.urlEncode(config.Client_Id__c, 'UTF-8') +
+                          '&client_secret=' + EncodingUtil.urlEncode(config.Client_Secret__c, 'UTF-8') +
+                          '&audience=' + EncodingUtil.urlEncode(config.Audience__c, 'UTF-8');
+            req.setBody(body);
+
+            Http http = new Http();
+            HttpResponse res = http.send(req);
+
+        
+            if(res.getStatusCode() == 200) {
+                Map<String, Object> responseMap = (Map<String, Object>)JSON.deserializeUntyped(res.getBody());
+                String newToken = (String)responseMap.get('access_token');
+
+                // Update Existing Custom Metadata Record With Refreshed Token
+                Metadata.CustomMetadata customMetadata = new Metadata.CustomMetadata();
+                customMetadata.fullName = 'Mirakl_Creds__mdt.Auth_Credentials';
+                customMetadata.label = 'Auth Credentials';
+
+                Metadata.CustomMetadataValue tokenField = new Metadata.CustomMetadataValue();
+                tokenField.field = 'Bearer_Token__c';
+                tokenField.value = newToken;
+                customMetadata.values.add(tokenField);
+
+                // Deploy the metadata using meta data api
+                Metadata.DeployContainer mdContainer = new Metadata.DeployContainer();
+                mdContainer.addMetadata(customMetadata);
+                if(!Test.isRunningTest()) {
+                    Id jobId = Metadata.Operations.enqueueDeployment(mdContainer, null);
+                }
+                System.debug('Successfully refreshed Mirakl token');
+            }
+        }catch(Exception e) {
+            System.debug('Error in refreshing Mirakl Token: ' + e.getMessage());
+        }
+    
+    }
+}
